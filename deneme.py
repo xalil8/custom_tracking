@@ -7,11 +7,15 @@ from time import time
 from ultralytics import YOLO
 
 
+from tracker import Tracker as Xalil_Tracker
+
 def main():
     start_time = time()
 
     _create_default_https_context = _create_unverified_context
 
+    ################TRACKER CONF ####################
+    tracker = Xalil_Tracker()
 
     source_video_path = "demovideo.webm"
     #video_saving_path = "output/out1.mp4"
@@ -41,18 +45,25 @@ def main():
         if count >100:
             break
 
-        results = model.predict(source=frame,classes=2,device="mps")
+        results = model.predict(source=frame,classes=2,device="mps") #same as model(frame) but in yolov8 style 
 
-        for result in results:
-            result = result.cpu().numpy()
-            for box in result.boxes.xyxyn:
-                #print(box)
-                x1,y1,x2,y2 = box
-                x1,y1,x2,y2 = int(x1*width),int(y1*height),int(x2*width), int(y2*height)
+        #for result in results: #that will only return sinle value so even results[0] is same as this code 
+        detections = []
+        for box in results[0].boxes.data.tolist():
+            x1, y1, x2, y2, conf, class_id = box
+            x1, y1, x2, y2, class_id = int(x1), int(y1), int(x2), int(y2), int(class_id) 
 
-                #print(x1,y2,x2,y2)
-                cv2.rectangle(frame,(x1,y1),(x2,y2),(0,0,255),2)
-            #cv2.putText(frame, str(row['confidence']), (x1,y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,0,255), 2)
+            detections.append([x1,y1,x2,y2,conf,class_id])
+
+        tracker.update(frame,detections)
+
+        for track in tracker.tracks:
+            bbox = track.bbox
+            track_id = track.track_id
+        
+        print(track_id)
+
+
 
         cv2.imshow("ROI",frame)
         print(f"frame {count} writing")
@@ -64,9 +75,8 @@ def main():
     #result.release()
     cv2.destroyAllWindows()
     print("process done")        
-    print("Execution time:", time() - start_time, "seconds")
+    print("Execution time:", round(time() - start_time,2), "seconds")
 
 
 if __name__ == "__main__":
     main()
-#python3 tracker/track.py --yolo-weights yolov8m.pt --source input/deneme1.mp4 --tracking-method ocsort --show-vid --device "mps"

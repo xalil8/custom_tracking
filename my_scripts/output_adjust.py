@@ -13,30 +13,15 @@ from ultralytics import YOLO
 
 
 import sys
-import platform
 import numpy as np
 from pathlib import Path
 import torch
-import torch.backends.cudnn as cudnn
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # yolov5 strongsort root directory
 WEIGHTS = ROOT / 'weights'
 
-if str(ROOT) not in sys.path:
-    sys.path.append(str(ROOT))  # add ROOT to PATH
-if str(ROOT / 'yolov8') not in sys.path:
-    sys.path.append(str(ROOT / 'yolov8'))  # add yolov5 ROOT to PATH
-if str(ROOT / 'trackers' / 'strongsort') not in sys.path:
-    sys.path.append(str(ROOT / 'trackers' / 'strongsort'))  # add strong_sort ROOT to PATH
-
-ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
-
-import logging
-from yolov8.ultralytics.nn.autobackend import AutoBackend
-from yolov8.ultralytics.yolo.data.dataloaders.stream_loaders import LoadImages, LoadStreams
 from yolov8.ultralytics.yolo.data.utils import IMG_FORMATS, VID_FORMATS
-from yolov8.ultralytics.yolo.utils import DEFAULT_CFG, LOGGER, SETTINGS, callbacks, colorstr, ops
 from yolov8.ultralytics.yolo.utils.checks import check_file, check_imgsz, check_imshow, print_args, check_requirements
 from yolov8.ultralytics.yolo.utils.files import increment_path
 from yolov8.ultralytics.yolo.utils.torch_utils import select_device
@@ -96,11 +81,10 @@ def main(
 
         for i, det in enumerate(detections):  # detections per image
             seen += 1
-            annotator = Annotator(im0, line_width=line_thickness, example=str("srede"))
 
             if det is not None and len(det):
 
-                outputs[i] = tracker_list[i].update(det.cpu(), im0)
+                outputs[i] = tracker_list[i].update(det.cpu(), frame)
                 
                 # draw boxes for visualization
                 if len(outputs[i]) > 0:
@@ -113,17 +97,13 @@ def main(
 
                         c = int(cls)  # integer class
                         id = int(id)  # integer id
-                        color = colors(c, True)
-                        annotator.box_label(bbox, "car", color=color)
-
+                        
             else:
                 pass
                 #tracker_list[i].tracker.pred_n_update_all_tracks()
                 
             # Stream results
-            im0 = annotator.result()
-
-            cv2.imshow(str(p), im0)
+            #cv2.imshow(str(p), im0)
             if cv2.waitKey(1) == ord('q'):  # 1 millisecond
                 exit()
             
