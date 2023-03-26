@@ -16,14 +16,14 @@ import torch
 import torch.backends.cudnn as cudnn
 
 
-import logging
+#import logging
 from yolov8.ultralytics.nn.autobackend import AutoBackend
 from yolov8.ultralytics.yolo.data.dataloaders.stream_loaders import LoadImages, LoadStreams
 from yolov8.ultralytics.yolo.data.utils import IMG_FORMATS, VID_FORMATS
 from yolov8.ultralytics.yolo.utils import DEFAULT_CFG, LOGGER, SETTINGS, callbacks, colorstr, ops
 from yolov8.ultralytics.yolo.utils.checks import check_file, check_imgsz, check_imshow, print_args, check_requirements
 from yolov8.ultralytics.yolo.utils.files import increment_path
-from yolov8.ultralytics.yolo.utils.torch_utils import select_device
+#from yolov8.ultralytics.yolo.utils.torch_utils import select_device
 from yolov8.ultralytics.yolo.utils.ops import Profile, non_max_suppression, scale_boxes, process_mask, process_mask_native
 from yolov8.ultralytics.yolo.utils.plotting import Annotator, colors, save_one_box
 
@@ -35,16 +35,13 @@ def main():
 
     ####################### MY CONFIGURATION ##########################
     source = "output.mp4"
-    device = "mps"
+    #device = "mps"
     yolo_weights= "yolov8m.pt"  # model.pt path(s),
-    classes=[2]  # filter by class: --class 0, or --class 0 2 3
-    show_vid = True
+    classes=None  # filter by class: --class 0, or --class 0 2 3
+    #show_vid = True
     tracking_method='bytetrack'
     tracking_config="trackers/bytetrack/configs/bytetrack.yaml"
     reid_weights="weights/osnet_x0_25_msmt17.pt"  # model.pt path,
-
-    project='/Users/xalil/Desktop/tracking/'+'runs'+'/track'  # save results to project/name
-    name='exp' # save results to project/name
 
 
     imgsz=[640, 640]  # inference size (height, width)
@@ -53,13 +50,7 @@ def main():
     max_det=1000  # maximum detections per image
     half=False  # use FP16 half-precision inference
     dnn=False  # use OpenCV DNN for ONNX inference
-    exist_ok=False  # existing project/name ok, do not increment
     line_thickness=2  # bounding box thickness (pixels)
-    hide_labels=False  # hide labels
-    hide_conf=False  # hide confidences
-    hide_class=False   # hide IDs
-    #save_txt=False  # save results to *.txt
-    #save_crop=False  # save cropped prediction boxes
     save_trajectories=False  # save trajectories for each track
     #save_vid=False  # save confidences in --save-txt labels
     agnostic_nms=False  # class-agnostic NMS
@@ -70,13 +61,9 @@ def main():
 
 
 
-    exp_name = source
-    #exp_name = name if name else exp_name + "_" + reid_weights.stem
-    #save_dir = increment_path(Path(project) / exp_name, exist_ok=exist_ok)  # increment run
-   # (save_dir / 'tracks' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
-
     # Load model
-    device = select_device(device)
+    device = torch.device("mps")
+    #device = select_device(device)
     model = AutoBackend(yolo_weights, device=device, dnn=dnn, fp16=half)
     stride, names, pt = model.stride, model.names, model.pt
     imgsz = check_imgsz(imgsz, stride=stride)  # check image size
@@ -84,35 +71,52 @@ def main():
     # Dataloader
     bs = 1
 
-    
     dataset = LoadImages(
             source,
             imgsz=imgsz,
             stride=stride,
             auto=pt,
             transforms=getattr(model.model, 'transforms', None),
-            vid_stride=vid_stride
+            vid_stride=vid_stride # fps stride = 1
         )
-    vid_path, vid_writer, txt_path = [None] * bs, [None] * bs, [None] * bs
-    model.warmup(imgsz=(1 if pt or model.triton else bs, 3, *imgsz))  # warmup
+    
+    #vid_path, vid_writer, txt_path = [None] * bs, [None] * bs, [None] * bs
+    #model.warmup(imgsz=(1 if pt or model.triton else bs, 3, *imgsz))  # warmup
+    model.warmup(imgsz=(1, 3, *imgsz))  # warmup
 
     # Create as many strong sort instances as there are video sources
     tracker_list = []
-    for i in range(bs):
-        tracker = create_tracker(tracking_method, tracking_config, reid_weights, device, half)
-        tracker_list.append(tracker, )
-        if hasattr(tracker_list[i], 'model'):
-            if hasattr(tracker_list[i].model, 'warmup'):
-                tracker_list[i].model.warmup()
+
+    tracker = create_tracker(tracking_method, tracking_config, reid_weights, device, half)
+    tracker_list.append(tracker, )
+    if hasattr(tracker_list, 'model'):
+        if hasattr(tracker_list.model, 'warmup'):
+            tracker_list[i].model.warmup()
+
     outputs = [None] * bs
 
     # Run tracking
     #model.warmup(imgsz=(1 if pt else bs, 3, *imgsz))  # warmup
     seen, windows, dt = 0, [], (Profile(), Profile(), Profile(), Profile())
-    curr_frames, prev_frames = [None] * bs, [None] * bs
+    #curr_frames, prev_frames = [None], [None]
+    curr_frames = [None]
+
+
+    #################POLYGON####################
+    polygon_points= np.array([[226, 307], [706, 305]])
+
+    polygon_points_2= np.array( [[226, 307], [706, 305], [712, 337], [201, 338]])
+
+    object_counter = 0
+    passing_dict = {}
     for frame_idx, batch in enumerate(dataset):
+        
+        #im  is processed image
+        #im0s is raw data, without any preprocess, mostly used in visulization
         path, im, im0s, vid_cap, s = batch
         #visualize = increment_path(save_dir / Path(path[0]).stem, mkdir=True) if visualize else False
+        cv2.polylines(im0s, np.int32([polygon_points]), True, (255,0,0),3)
+
         with dt[0]:
             im = torch.from_numpy(im).to(device)
             im = im.half() if half else im.float()  # uint8 to fp16/32
@@ -136,25 +140,26 @@ def main():
 
             p, im0, _ = path, im0s.copy(), getattr(dataset, 'frame', 0)
             p = Path(p)  # to Path
+            cv2.putText(im0, f"{object_counter} OBJECT PASSED ", (30,50), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0,0,255), 3)
+
             # video file
-            if source.endswith(VID_FORMATS):
-                txt_file_name = p.stem
+            #if source.endswith(VID_FORMATS):
+            #    txt_file_name = p.stem
                 #save_path = str(save_dir / p.name)  # im.jpg, vid.mp4, ...
             # folder with imgs
-            else:
-                txt_file_name = p.parent.name  # get folder name containing current img
+            #else:
+            #    txt_file_name = p.parent.name  # get folder name containing current img
                 #save_path = str(save_dir / p.parent.name)  # im.jpg, vid.mp4, ...
             curr_frames[i] = im0
 
             #txt_path = str(save_dir / 'tracks' / txt_file_name)  # im.txt
             s += '%gx%g ' % im.shape[2:]  # print string
-            imc = im0  # for save_crop
 
             annotator = Annotator(im0, line_width=line_thickness, example=str(names))
             
-            if hasattr(tracker_list[i], 'tracker') and hasattr(tracker_list[i].tracker, 'camera_update'):
-                if prev_frames[i] is not None and curr_frames[i] is not None:  # camera motion compensation
-                    tracker_list[i].tracker.camera_update(prev_frames[i], curr_frames[i])
+            #if hasattr(tracker_list[i], 'tracker') and hasattr(tracker_list[i].tracker, 'camera_update'):
+            #    if prev_frames[i] is not None and curr_frames[i] is not None:  # camera motion compensation
+            #        tracker_list[i].tracker.camera_update(prev_frames[i], curr_frames[i])
 
             if det is not None and len(det):
 
@@ -174,42 +179,52 @@ def main():
 
                 if len(outputs[i]) > 0:
                     for j, (output) in enumerate(outputs[i]):
-                        print(output)
+                        #print(output)
                         bbox = output[0:4]
                         id = output[4]
                         cls = output[5]
                         conf = output[6]
+                        
+                        x1, y1, x2, y2 = bbox
+                        x1, y1, x2, y2, c, id= int(x1),int(y1),int(x2), int(y2), int(cls), int(id)
+                        ###############################ALGORITHM WORK HERE###################################
+                        center_x, center_y= int((x1+x2)/2), int((y1+y2)/2)
+                        area_check_1 = cv2.pointPolygonTest(np.int32([polygon_points_2]),((center_x,center_y)), False)
+                        
+                        cv2.circle(im0, (center_x, center_y), radius=3, color=(0, 0, 255), thickness=-1)
+                        cv2.rectangle(im0,(x1,y1),(x2,y2),(20,255,20),2)
+                        cv2.putText(im0, f"{names[int(c)]}{str(id)}", (x1,y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (20,255,20), 2)
 
-                        if show_vid:  # Add bbox/seg to image
-                            c = int(cls)  # integer class
-                            id = int(id)  # integer id
-                            label = None if hide_labels else (f'{id} {names[c]}' if hide_conf else \
-                                (f'{id} {conf:.2f}' if hide_class else f'{id} {names[c]} {conf:.2f}'))
-                            color = colors(c, True)
-                            annotator.box_label(bbox, label, color=color)
-                            
-                            if save_trajectories and tracking_method == 'strongsort':
-                                q = output[7]
-                                tracker_list[i].trajectory(im0, q, color=color)
+                        color = colors(c, True)
 
-            else:
-                pass
-                #tracker_list[i].tracker.pred_n_update_all_tracks()
+
+                        if id not in passing_dict:
+                            passing_dict[id] = 0
+                        if area_check_1 == 1:
+                            new_val = passing_dict[id] + 1
+                            passing_dict.update({id:new_val})
+                            if passing_dict[id] == 1:
+                                object_counter += 1
+                        ##################################################################
+                        #annotator.box_label(bbox, "", color=color)
+                        
+                        if save_trajectories and tracking_method == 'strongsort':
+                            q = output[7]
+                            tracker_list[i].trajectory(im0, q, color=color)
+
                 
             # Stream results
             im0 = annotator.result()
-            if show_vid:
-                if platform.system() == 'Linux' and p not in windows:
-                    windows.append(p)
-                    cv2.namedWindow(str(p), cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)  # allow window resize (Linux)
-                    cv2.resizeWindow(str(p), im0.shape[1], im0.shape[0])
-                cv2.imshow(str(p), im0)
-                if cv2.waitKey(1) == ord('q'):  # 1 millisecond
-                    exit()
 
+            cv2.imshow(str(p), im0)
 
-            prev_frames[i] = curr_frames[i]
+            if cv2.waitKey(1) == ord('q'):  # 1 millisecond
+                exit()
+
+            #prev_frames[i] = curr_frames[i]
             
+
+
         # Print total time (preprocessing + inference + NMS + tracking)
         LOGGER.info(f"{s}{'' if len(det) else '(no detections), '}{sum([dt.dt for dt in dt if hasattr(dt, 'dt')]) * 1E3:.1f}ms")
 
